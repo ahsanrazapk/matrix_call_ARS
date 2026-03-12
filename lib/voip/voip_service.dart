@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as webrtc;
 import 'package:matrix/matrix.dart';
 import 'package:matrix_call/main.dart';
-import 'package:matrix_call/voip/scan_to_proced.dart';
+import 'package:matrix_call/services/call_manager.dart';
 import 'package:matrix_call/voip/vivoka_sdk.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -30,7 +30,8 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
 
   final webrtc.RTCVideoRenderer localRenderer = webrtc.RTCVideoRenderer();
   final webrtc.RTCVideoRenderer remoteRenderer = webrtc.RTCVideoRenderer();
-  final webrtc.RTCVideoRenderer remoteScreenRenderer = webrtc.RTCVideoRenderer();
+  final webrtc.RTCVideoRenderer remoteScreenRenderer =
+      webrtc.RTCVideoRenderer();
 
   bool micMuted = false;
   bool camMuted = false;
@@ -97,10 +98,20 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     _active = null;
     _started = false;
 
+    try {
+      await VivokaSdkFlutter.setCallMode(false);
+    } catch (_) {}
+
+    CallManager.instance.hideIncomingCall();
+
     notifyListeners();
   }
 
-  Future<void> callUser({required String roomId, required String userId, required CallType type}) async {
+  Future<void> callUser({
+    required String roomId,
+    required String userId,
+    required CallType type,
+  }) async {
     final voip = _voip;
     if (voip == null) throw Exception('VoIP not started');
 
@@ -162,7 +173,6 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
   void _markConnectedIfNeeded(CallSession? s) {
     if (s == null) return;
     if (_connectedAt != null) return;
-    // Only when the active call is connected
     if (s.state == CallState.kConnected) {
       _connectedAt = DateTime.now();
       notifyListeners();
@@ -177,22 +187,38 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
   MediaDevices get mediaDevices => _CustomMediaDevices();
 
   @override
-  Future<RTCPeerConnection> createPeerConnection(Map<String, dynamic> configuration, [Map<String, dynamic> constraints = const {}]) async {
+  Future<RTCPeerConnection> createPeerConnection(
+    Map<String, dynamic> configuration, [
+    Map<String, dynamic> constraints = const {},
+  ]) async {
     final pc = await webrtc.createPeerConnection(configuration, constraints);
 
     try {
-      await pc.setConfiguration({...configuration, 'sdpSemantics': 'unified-plan'});
+      await pc.setConfiguration({
+        ...configuration,
+        'sdpSemantics': 'unified-plan',
+      });
     } catch (_) {}
 
     pc.onIceConnectionState = (state) {
-      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected || state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         _markConnectedIfNeeded(_active);
         _tuneVideoSenders(pc);
       }
+      if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+          state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+        debugPrint('[VoIP] ICE state: ${state.name} — attempting recovery');
+      }
     };
+
     pc.onConnectionState = (state) {
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _tuneVideoSenders(pc);
+      }
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+          state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        debugPrint('[VoIP] Peer connection: ${state.name}');
       }
     };
 
@@ -223,7 +249,9 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
           p.encodings![0].maxBitrate = maxBitrate;
           p.encodings![0].maxFramerate = 30;
           await s.setParameters(p);
-          debugPrint('🎥 Set maxBitrate=$maxBitrate for ${w ?? "?"}x${h ?? "?"}');
+          debugPrint(
+            '🎥 Set maxBitrate=$maxBitrate for ${w ?? "?"}x${h ?? "?"}',
+          );
         }
       }
     } catch (e) {
@@ -233,7 +261,6 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
 
   int _pickBitrate(int? w, int? h) {
     final pixels = (w ?? 1280) * (h ?? 720);
-
     if (pixels >= 1920 * 1080) return 3_500_000;
     if (pixels >= 1280 * 720) return 2_200_000;
     return 900_000;
@@ -243,7 +270,6 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
   Future<void> playRingtone() async {
     if (_ringtonePlaying) return;
     _ringtonePlaying = true;
-
     try {
       await FlutterRingtonePlayer().play(
         android: AndroidSounds.ringtone,
@@ -269,7 +295,6 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
   Future<void> playRingback() async {
     if (_ringbackPlaying) return;
     _ringbackPlaying = true;
-
     try {
       await FlutterRingtonePlayer().play(
         android: AndroidSounds.notification,
@@ -314,6 +339,7 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
         'state=${session.state.name} | '
         'reason=${session.hangupReason?.name ?? 'none'}',
       );
+
       if (session.direction == CallDirection.kIncoming) {
         if (session.state == CallState.kRinging) {
           await playRingtone();
@@ -321,6 +347,7 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
           await stopRingtone();
         }
       }
+
       if (session.direction == CallDirection.kOutgoing) {
         final shouldRingback =
             session.state == CallState.kInviteSent ||
@@ -334,12 +361,22 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
           await stopRingback();
         }
       }
+
       if (session.state == CallState.kConnected) {
         _connectedCall = session;
         _markConnectedIfNeeded(session);
         await stopRingtone();
         await stopRingback();
+        try {
+          await VivokaSdkFlutter.setCallMode(true);
+        } catch (_) {}
       }
+
+      if (session.state == CallState.kEnded) {
+        await _clearActiveIfSame(session);
+        return;
+      }
+
       notifyListeners();
     });
 
@@ -367,14 +404,17 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
 
     _eventSub = session.onCallEventChanged.stream.listen((_) {});
     _replacedSub = session.onCallReplaced.stream.listen((_) {});
-    _hangupForGroupSub = session.onCallHangupNotifierForGroupCalls.stream.listen((_) {});
+    _hangupForGroupSub =
+        session.onCallHangupNotifierForGroupCalls.stream.listen((_) {});
     _streamAddSub = session.onStreamAdd.stream.listen((_) {});
     _streamRemovedSub = session.onStreamRemoved.stream.listen((_) {});
   }
 
   @override
   Future<void> handleNewCall(CallSession session) async {
-    if (!canHandleNewCall && session.direction == CallDirection.kIncoming && session.state == CallState.kRinging) {
+    if (!canHandleNewCall &&
+        session.direction == CallDirection.kIncoming &&
+        session.state == CallState.kRinging) {
       await handleMissedCall(session);
       return;
     }
@@ -388,18 +428,20 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     micMuted = false;
     camMuted = false;
 
-    if (session.direction == CallDirection.kIncoming && session.state == CallState.kRinging) {
-      await playRingtone();
-    }
-
     notifyListeners();
 
-    final nav = appNavigatorKey.currentState;
-    if (nav == null) return;
+    if (session.direction == CallDirection.kIncoming &&
+        session.state == CallState.kRinging) {
+      await playRingtone();
 
-    final isIncoming = session.direction == CallDirection.kIncoming;
-    if (isIncoming) {
-      nav.pushNamed(CallScreen.route, arguments: session.room);
+      final callerName = session.room.getLocalizedDisplayname();
+
+      CallManager.instance.showIncomingCall(
+        session: session,
+        callerName: callerName,
+        onAnswer: () => answer(),
+        onReject: () => reject(),
+      );
     }
   }
 
@@ -434,7 +476,8 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     final active = _active;
 
     debugPrint(
-      '[VoipService] clearIfSame | active=${active?.callId ?? "null"} | ended=${session.callId} | reason=${session.hangupReason?.name ?? "none"}',
+      '[VoipService] clearIfSame | active=${active?.callId ?? "null"} | '
+      'ended=${session.callId} | reason=${session.hangupReason?.name ?? "none"}',
     );
 
     if (active?.callId != session.callId) return;
@@ -453,7 +496,14 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     localRenderer.srcObject = null;
     remoteRenderer.srcObject = null;
     remoteScreenRenderer.srcObject = null;
-    await _popCallScreenIfOpen(force: false);
+
+    try {
+      await VivokaSdkFlutter.setCallMode(false);
+    } catch (_) {}
+
+    CallManager.instance.hideIncomingCall();
+
+    await _popCallScreenIfOpen();
 
     notifyListeners();
   }
@@ -466,7 +516,7 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     await _hangupForGroupSub?.cancel();
     await _streamAddSub?.cancel();
     await _streamRemovedSub?.cancel();
-    _zoomSub?.cancel();
+    await _zoomSub?.cancel();
 
     _stateSub = null;
     _streamsSub = null;
@@ -478,14 +528,11 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     _zoomSub = null;
   }
 
-  Future<void> _popCallScreenIfOpen({bool force = false}) async {
+  Future<void> _popCallScreenIfOpen() async {
     final nav = appNavigatorKey.currentState;
     if (nav == null) return;
-    if (nav.canPop()) {
-      nav.pop();
-    }else{
-      nav.pushNamedAndRemoveUntil(ScanToProceedScreen.route, (_) => false);
-    }
+
+    nav.popUntil((route) => route.settings.name != CallScreen.route);
   }
 
   Future<void> _ensurePermissions(CallType type) async {
@@ -511,48 +558,6 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     super.dispose();
   }
 
-  /*  Future<void> sendZoomRequest(double zoom) async {
-    final s = active;
-    if (s == null) return;
-
-    final room = s.room;
-    await room.sendEvent(
-
-      {
-        'action': 'camera_zoom',
-        'call_id': s.callId,
-        'zoom': zoom,
-        'userID':s.room.directChatMatrixID
-      },
-      type: 'com.dropslab.call.control',
-    );
-  }
-
-  Future<void> startZoomListener(Room room) async {
-    _zoomSub?.cancel();
-    _zoomSub = room.client.onTimelineEvent.stream.listen((e) async {
-      final type = e.type;
-      if (type != 'com.dropslab.call.control') return;
-
-      final content = e.content;
-      if (content['action'] != 'camera_zoom') return;
-
-      final userId = content['userID']?.toString();
-      if (userId == null) return;
-
-      if(room.client.userID != userId)return;
-
-      final callId = content['call_id']?.toString();
-      if (callId == null) return;
-
-      if (active?.callId != callId) return;
-
-      final zoom = (content['zoom'] as num?)?.toDouble();
-      if (zoom == null) return;
-
-      await setLocalCameraZoom(zoom);
-    });
-  }*/
   Future<void> setLocalCameraZoom(double zoom) async {
     final stream = localRenderer.srcObject;
     if (stream == null) return;
@@ -573,7 +578,6 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     if (cmd == 'zoom in') newZoom = (remoteZoom + 1.0).clamp(1.0, 5.0);
     if (cmd == 'zoom out') newZoom = (remoteZoom - 1.0).clamp(1.0, 5.0);
     if (newZoom != remoteZoom) {
-      // remoteZoom = newZoom;
       setLocalCameraZoom(newZoom);
     }
   }
@@ -583,17 +587,13 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
   Future<void> on() async {
     try {
       await TorchLight.enableTorch();
-    } on Exception catch (_) {
-      // Handle error
-    }
+    } on Exception catch (_) {}
   }
 
   Future<void> off() async {
     try {
       await TorchLight.disableTorch();
-    } on Exception catch (_) {
-      // Handle error
-    }
+    } on Exception catch (_) {}
   }
 }
 
@@ -601,10 +601,14 @@ class _CustomMediaDevices implements MediaDevices {
   final MediaDevices _native = webrtc.navigator.mediaDevices;
 
   @override
-  Future<webrtc.MediaStream> getUserMedia(Map<String, dynamic> constraints) async {
+  Future<webrtc.MediaStream> getUserMedia(
+    Map<String, dynamic> constraints,
+  ) async {
     final c = Map<String, dynamic>.from(constraints);
     if (c['video'] == true || c['video'] is Map) {
-      final existingVideo = c['video'] is Map ? Map<String, dynamic>.from(c['video'] as Map) : <String, dynamic>{};
+      final existingVideo = c['video'] is Map
+          ? Map<String, dynamic>.from(c['video'] as Map)
+          : <String, dynamic>{};
       final deviceId = existingVideo['deviceId'];
       final facingMode = existingVideo['facingMode'] ?? 'environment';
 
@@ -671,7 +675,9 @@ class _CustomMediaDevices implements MediaDevices {
   }
 
   @override
-  Future<webrtc.MediaStream> getDisplayMedia(Map<String, dynamic> constraints) {
+  Future<webrtc.MediaStream> getDisplayMedia(
+    Map<String, dynamic> constraints,
+  ) {
     return _native.getDisplayMedia(constraints);
   }
 
@@ -691,7 +697,9 @@ class _CustomMediaDevices implements MediaDevices {
   }
 
   @override
-  Future<webrtc.MediaDeviceInfo> selectAudioOutput([webrtc.AudioOutputOptions? options]) {
+  Future<webrtc.MediaDeviceInfo> selectAudioOutput([
+    webrtc.AudioOutputOptions? options,
+  ]) {
     return _native.selectAudioOutput(options);
   }
 

@@ -1,0 +1,192 @@
+You are a senior Flutter developer with strong experience in WebRTC, Matrix VoIP, platform channels, and Android native integrations.
+
+Project Context
+This Flutter app integrates:
+
+1. Vivoka Voice SDK (implemented in native Android)
+2. Matrix VoIP calling using Flutter WebRTC
+3. Platform channels to send Vivoka voice command callbacks from Android to Flutter
+
+Your task is to analyze the Flutter code and fix architectural or implementation issues.
+
+Main Goals
+
+1. Analyze Matrix VoIP call implementation.
+2. Ensure all call states are properly handled.
+3. Ensure incoming calls are received globally across the entire app.
+4. Handle Vivoka command callbacks from Android to Flutter.
+5. Ensure WebRTC local and remote video views work correctly.
+
+Matrix VoIP Requirements
+
+Analyze and fix the following:
+
+Call States:
+Handle all possible Matrix/WebRTC call states:
+
+- incoming call
+- call accepted
+- call rejected
+- call cancelled
+- call hangup
+- connection lost
+- ICE connection failed
+- call ended
+- remote user left
+- call timeout
+
+Callbacks that must be handled properly:
+
+onIncomingCall
+onCallConnected
+onCallRinging
+onCallAccepted
+onCallRejected
+onCallHangup
+onCallEnded
+onIceConnectionStateChange
+onConnectionLost
+
+Behavior Requirements
+
+Incoming calls must appear over the entire app.
+
+This means:
+- If user is on any screen
+- If user is already inside another screen
+- If user is in another call screen
+
+The incoming call UI must appear globally.
+
+Suggested Implementation:
+
+Create a global CallManager using:
+
+ChangeNotifier / Riverpod / Singleton service
+
+Example architecture:
+
+lib/
+ ├── services/
+ │     call_manager.dart
+ │     matrix_call_service.dart
+ │     vivoka_command_service.dart
+ │
+ ├── screens/
+ │     call_screen.dart
+ │     incoming_call_screen.dart
+ │
+ ├── widgets/
+ │     local_video_view.dart
+ │     remote_video_view.dart
+ │
+ └── platform/
+       vivoka_channel.dart
+
+Call Manager Responsibilities
+
+• Maintain global call state
+• Listen for Matrix call events
+• Show incoming call overlay
+• Manage call accept / reject / hangup
+• Manage WebRTC streams
+• Provide remote and local views
+• Handle reconnection
+
+WebRTC Handling
+
+Ensure:
+
+Local stream initialization
+Remote stream rendering
+Proper cleanup when call ends
+Camera switching support
+Mic mute / unmute
+Speaker control
+
+Example views:
+
+RTCVideoView(localRenderer)
+RTCVideoView(remoteRenderer)
+
+Also verify:
+
+dispose() handling
+renderer initialization
+stream lifecycle
+
+Incoming Call Overlay
+
+Implement a global incoming call handler.
+
+Options:
+
+OverlayEntry
+NavigatorKey
+Global call service
+
+Incoming call UI must:
+
+- Show caller name
+- Accept button
+- Reject button
+
+Vivoka Voice Commands
+
+Vivoka commands come from Android native through platform channel.
+
+Analyze the Flutter side code that receives these callbacks.
+
+Ensure commands like:
+
+"accept call"
+"reject call"
+"hang up"
+"mute microphone"
+
+trigger correct Flutter call actions.
+
+Use:
+
+MethodChannel
+EventChannel
+
+Example:
+
+MethodChannel("vivoka_commands")
+
+Handle callbacks like:
+
+accept_call
+reject_call
+hangup_call
+mute_call
+
+Error Handling
+
+Handle edge cases:
+
+• network lost during call
+• remote user disconnect
+• call cancelled before answer
+• WebRTC ICE failure
+• app goes to background
+• app resume
+
+Performance
+
+Ensure:
+
+No memory leaks
+WebRTC renderers properly disposed
+No duplicate listeners
+Call state stored centrally
+
+Expected Output
+
+1. Identify issues in the current Flutter implementation.
+2. Provide corrected architecture.
+3. Fix Matrix WebRTC call handling.
+4. Ensure global incoming call UI works.
+5. Ensure Vivoka callbacks trigger Flutter actions correctly.
+6. Provide improved Flutter code examples.

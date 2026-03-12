@@ -80,22 +80,28 @@ class MyApp extends StatelessWidget {
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case CallScreen.route:
+            final room = settings.arguments;
+            if (room is! Room) return null;
             return MaterialPageRoute(
-              builder: (_) =>  CallScreen(room: settings.arguments as Room),
+              settings: settings,
+              builder: (_) => CallScreen(room: room),
             );
 
           case LoginPage.route:
             return MaterialPageRoute(
+              settings: settings,
               builder: (_) => const LoginPage(),
             );
 
           case ScanToProceedScreen.route:
             return MaterialPageRoute(
+              settings: settings,
               builder: (_) => const ScanToProceedScreen(),
             );
 
           case BarcodeScanner.route:
             return MaterialPageRoute<String?>(
+              settings: settings,
               builder: (_) => const BarcodeScanner(),
             );
 

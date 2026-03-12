@@ -2,6 +2,7 @@ import 'dart:async';
 import '../voip/vivoka_sdk.dart';
 
 typedef VivokaCommandHandler = bool Function(String cmd);
+typedef VivokaGlobalHandler = void Function(String cmd);
 
 class VivokaCommandDispatcher {
   VivokaCommandDispatcher._();
@@ -9,8 +10,15 @@ class VivokaCommandDispatcher {
 
   StreamSubscription? _sub;
 
-  // stack => last registered = highest priority (current screen)
   final List<_Entry> _stack = [];
+
+  VivokaGlobalHandler? _globalFallback;
+
+  Object setGlobalFallback(VivokaGlobalHandler? handler) {
+    ensureStarted();
+    _globalFallback = handler;
+    return Object();
+  }
 
   void ensureStarted() {
     if (_sub != null) return;
@@ -20,10 +28,16 @@ class VivokaCommandDispatcher {
       final cmd = (e.text ?? '').trim().toLowerCase();
       if (cmd.isEmpty) return;
 
-      // top-most handler gets the first chance
+      bool handled = false;
       for (var i = _stack.length - 1; i >= 0; i--) {
-        final handled = _stack[i].handler(cmd);
-        if (handled) break;
+        if (_stack[i].handler(cmd)) {
+          handled = true;
+          break;
+        }
+      }
+
+      if (!handled) {
+        _globalFallback?.call(cmd);
       }
     });
   }
@@ -41,6 +55,7 @@ class VivokaCommandDispatcher {
 
   Future<void> stopAll() async {
     _stack.clear();
+    _globalFallback = null;
     await _sub?.cancel();
     _sub = null;
   }
