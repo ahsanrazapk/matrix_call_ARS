@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as webrtc;
 import 'package:matrix/matrix.dart';
 import 'package:matrix_call/main.dart';
@@ -12,7 +13,8 @@ import 'package:webrtc_interface/webrtc_interface.dart';
 
 import 'call_screen.dart';
 
-class VoipService extends ChangeNotifier implements WebRTCDelegate {
+class VoipService extends ChangeNotifier
+    implements WebRTCDelegate, WidgetsBindingObserver {
   final Client client;
   VoipService(this.client);
 
@@ -58,6 +60,8 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     if (_started) return;
     _started = true;
 
+    WidgetsBinding.instance.addObserver(this);
+
     await localRenderer.initialize();
     await remoteRenderer.initialize();
     await remoteScreenRenderer.initialize();
@@ -72,6 +76,8 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
   }
 
   Future<void> stop() async {
+    WidgetsBinding.instance.removeObserver(this);
+
     await stopRingtone();
     await stopRingback();
 
@@ -105,6 +111,93 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
     CallManager.instance.hideIncomingCall();
 
     notifyListeners();
+  }
+
+  // ── App lifecycle ────────────────────────────────────────────────────────
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+        _onAppPaused();
+      case AppLifecycleState.resumed:
+        _onAppResumed();
+      default:
+        break;
+    }
+  }
+
+  void _onAppPaused() {
+    if (!_started) return;
+    if (_connectedCall == null) {
+      try {
+        VivokaSdkFlutter.stopVivoka();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _onAppResumed() async {
+    if (!_started) return;
+
+    final session = _active;
+
+    // Case 3: No active call — nothing to restore
+    if (session == null) return;
+
+    // Case 3: Call ended while the app was backgrounded
+    if (session.state == CallState.kEnded) {
+      await clearActive();
+      return;
+    }
+
+    // Resume Vivoka ASR only when not in a connected call
+    if (_connectedCall == null) {
+      try {
+        VivokaSdkFlutter.resumeVivoka();
+      } catch (_) {}
+    }
+
+    // Case 1: Incoming call is still ringing — re-show the overlay if it was dismissed
+    if (session.direction == CallDirection.kIncoming &&
+        session.state == CallState.kRinging) {
+      if (!CallManager.instance.isShowingOverlay) {
+        final callerName = session.room.getLocalizedDisplayname();
+        CallManager.instance.showIncomingCall(
+          session: session,
+          callerName: callerName,
+          onAnswer: () => answer(),
+          onReject: () => reject(),
+        );
+      }
+      return;
+    }
+
+    // Case 2: Ongoing call — reattach streams in case renderers lost their source
+    if (session.state == CallState.kConnected ||
+        session.state == CallState.kConnecting) {
+      _reattachStreams(session);
+      notifyListeners();
+    }
+  }
+
+  void _reattachStreams(CallSession session) {
+    final local = session.localUserMediaStream;
+    final remoteScreen = session.remoteScreenSharingStream;
+    final remoteUser = session.remoteUserMediaStream;
+
+    if (local?.stream != null) {
+      localRenderer.srcObject = local!.stream;
+    }
+    if (remoteScreen?.stream != null) {
+      remoteScreenRenderer.srcObject = remoteScreen!.stream;
+    } else {
+      remoteScreenRenderer.srcObject = null;
+    }
+    if (remoteUser?.stream != null) {
+      remoteRenderer.srcObject = remoteUser!.stream;
+    } else {
+      remoteRenderer.srcObject = null;
+    }
   }
 
   Future<void> callUser({
@@ -547,6 +640,7 @@ class VoipService extends ChangeNotifier implements WebRTCDelegate {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _groupInviteSub?.cancel();
     _zoomSub?.cancel();
     _clearPerCallSubs();

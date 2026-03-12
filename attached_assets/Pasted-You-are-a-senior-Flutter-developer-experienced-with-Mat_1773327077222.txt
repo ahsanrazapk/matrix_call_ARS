@@ -1,0 +1,110 @@
+You are a senior Flutter developer experienced with Matrix VoIP, WebRTC, and lifecycle management.
+
+I have a Flutter app that uses Matrix VoIP calling with flutter_webrtc. I need to properly handle call state when the app goes to background and then returns to foreground.
+
+Goal
+When the app resumes from background, the app must check if there is:
+
+1. An incoming call
+2. An ongoing active call
+3. A call that ended while the app was in background
+
+Based on the result, the UI should update accordingly.
+
+Requirements
+
+Lifecycle Handling
+
+Use WidgetsBindingObserver or AppLifecycleState to detect:
+
+AppLifecycleState.paused
+AppLifecycleState.resumed
+
+When the app resumes:
+
+• Query Matrix client for active calls
+• Check if there is an ongoing call
+• Check if there is a pending incoming call
+
+Behavior
+
+Case 1 — Incoming Call Exists
+If a call invitation was received while the app was backgrounded:
+→ Show the Incoming Call screen
+
+Case 2 — Ongoing Call Exists
+If the call was already accepted:
+→ Navigate directly to CallScreen
+→ Restore local and remote video streams
+
+Case 3 — Call Ended
+If the call ended while the app was backgrounded:
+→ Close call UI
+→ Reset call state
+
+Call State Manager
+
+Create a global CallManager service that stores the current call state.
+
+Example states:
+
+enum CallState {
+  idle,
+  incoming,
+  ringing,
+  connecting,
+  connected,
+  ended
+}
+
+The CallManager should:
+
+• Listen to Matrix call events
+• Maintain current call state
+• Restore UI when app resumes
+
+WebRTC Recovery
+
+When restoring an ongoing call:
+
+• Reattach RTCVideoRenderer
+• Restore local stream
+• Restore remote stream
+
+Navigation Handling
+
+Use a global navigatorKey to open call screens even when the user is on another screen.
+
+Example:
+
+MaterialApp(
+  navigatorKey: navigatorKey
+)
+
+Then navigate like:
+
+navigatorKey.currentState?.push(CallScreen())
+
+Edge Cases to Handle
+
+• App killed and reopened
+• App resumed during ringing state
+• Network reconnect
+• ICE reconnect
+• Remote user already disconnected
+
+Also verify:
+
+• Renderers are initialized properly
+• Streams are not duplicated
+• Call state remains synchronized with Matrix events
+
+Output
+
+Provide Flutter code that:
+
+• Detects app resume
+• Checks Matrix active call
+• Restores call UI correctly
+• Handles incoming and ongoing calls
+• Prevents duplicate navigation

@@ -12,6 +12,8 @@ class CallManager {
   OverlayEntry? _overlayEntry;
   Object? _dispatcherToken;
 
+  bool get isShowingOverlay => _overlayEntry != null;
+
   VoidCallback? _storedAnswer;
   VoidCallback? _storedReject;
   Room? _activeRoom;
