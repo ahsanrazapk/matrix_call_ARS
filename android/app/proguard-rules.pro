@@ -1,0 +1,4 @@
+-keep class com.nuance.** { *; }
+-dontwarn com.nuance.**
+-keep class com.vivoka.** { *; }
+-dontwarn com.vivoka.**

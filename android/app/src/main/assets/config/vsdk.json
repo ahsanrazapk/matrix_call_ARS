@@ -1,0 +1,36 @@
+{
+    "csdk": {
+        "asr": {
+            "models": {
+                "grammerModel": {
+                    "acmod": "acmod6_9000_enu_gen_car_f16_v2_0_0.dat",
+                    "file": "grammerModel.fcf",
+                    "type": "static"
+                }
+            },
+            "recognizers": {
+                "rec_1": {
+                    "acmods": [
+                        "acmod6_9000_eng_gen_car_f16_v2_0_0.dat",
+                        "acmod6_9000_enu_gen_car_f16_v2_0_0.dat"
+                    ]
+                }
+            }
+        },
+        "paths": {
+            "acmod": "asr/acmod",
+            "asr": "asr/asr",
+            "audio_based_classifier_model": "asr/abc",
+            "clc": "asr/clc",
+            "clc_ruleset": "asr/clc",
+            "confusion_dictionary": "asr/dictionaries",
+            "data_root": "../data/csdk",
+            "dictionary": "asr/dictionaries",
+            "language_model": "asr/lm",
+            "search": "asr/ctx",
+            "sem3": "asr/ctx",
+            "users": "asr/users"
+        }
+    },
+    "version": "2.0"
+}
