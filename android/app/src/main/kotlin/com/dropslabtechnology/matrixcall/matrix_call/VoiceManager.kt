@@ -1,3 +1,7 @@
+// DEPRECATED — superseded by voice/VoiceManager.kt
+// This file is retained only to avoid breaking any existing Gradle incremental
+// cache.  Do not use this class; use voice.VoiceManager instead.
+@file:Suppress("UNUSED")
 package com.dropslabtechnology.matrixcall.matrix_call
 
 import android.content.Context
