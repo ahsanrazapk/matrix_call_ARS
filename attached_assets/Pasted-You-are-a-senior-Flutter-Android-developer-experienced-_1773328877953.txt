@@ -1,0 +1,145 @@
+You are a senior Flutter + Android developer experienced with Matrix VoIP, WebRTC, and native SDK integrations.
+
+Project Context
+The Flutter application integrates:
+
+• Vivoka Voice SDK (implemented in native Android)
+• Matrix VoIP calling using flutter_webrtc
+• Platform Channels to send Vivoka voice command callbacks from Android to Flutter
+
+Current Issues
+
+1. Voice commands from Vivoka are not triggering actions in Flutter.
+2. When the caller loses internet connection, the callee does not detect it and the call does not end.
+3. When the callee loses internet connection, the caller is not notified.
+4. Call UI remains active even when the connection is lost.
+
+Your task is to analyze and fix the architecture and event handling.
+
+Part 1 — Vivoka Voice Commands
+
+Verify the Android → Flutter communication.
+
+Check:
+
+• MethodChannel or EventChannel implementation
+• That callbacks are actually sent from Android when commands are recognized
+• That Flutter is listening correctly to the channel
+
+Example expected commands:
+
+accept_call
+reject_call
+hangup_call
+mute_call
+
+Expected Behavior
+
+When Vivoka detects commands like:
+
+"accept call" → Flutter should trigger call accept
+"reject call" → Flutter should trigger call reject
+"hang up" → Flutter should trigger call hangup
+
+Ensure:
+
+• Only one channel listener exists
+• Commands are handled globally
+• Commands work even if the user is on another screen
+
+Part 2 — Matrix Call State Handling
+
+Ensure all call states are handled properly.
+
+Required listeners:
+
+onIncomingCall
+onCallRinging
+onCallConnected
+onCallEnded
+onCallHangup
+onCallRejected
+onIceConnectionStateChange
+onConnectionStateChange
+
+Part 3 — Internet Disconnect Handling
+
+Fix the issue where calls remain active if one side loses internet.
+
+Caller Internet Off
+
+If caller loses connection:
+
+• Callee must detect ICE failure or connection loss
+• Show message: "Caller connection lost"
+• End call automatically
+
+Callee Internet Off
+
+If callee loses connection:
+
+• Caller must detect ICE failure
+• Show message: "Callee disconnected"
+• End call
+
+Implement monitoring for:
+
+RTCPeerConnectionState
+RTCIceConnectionState
+
+Handle states:
+
+failed
+disconnected
+closed
+
+Example logic:
+
+if (iceConnectionState == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+iceConnectionState == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+endCall();
+showConnectionLostMessage();
+}
+
+Part 4 — Global Call Manager
+
+Create a singleton CallManager service responsible for:
+
+• Listening to Matrix call events
+• Handling WebRTC connection states
+• Managing call lifecycle
+• Handling Vivoka commands
+• Updating UI globally
+
+Suggested Structure
+
+lib/
+├── services/
+│     call_manager.dart
+│     matrix_call_service.dart
+│     vivoka_command_service.dart
+│
+├── screens/
+│     call_screen.dart
+│     incoming_call_screen.dart
+│
+└── platform/
+vivoka_channel.dart
+
+Part 5 — Error Handling
+
+Handle edge cases:
+
+• Network lost during call
+• Remote user disconnect
+• ICE connection failure
+• App background / resume
+• Duplicate listeners
+
+Expected Output
+
+1. Identify the problems causing Vivoka commands to fail.
+2. Fix platform channel communication.
+3. Implement proper Matrix/WebRTC call state listeners.
+4. Handle internet disconnect on both caller and callee sides.
+5. Provide corrected Flutter and Android code examples.

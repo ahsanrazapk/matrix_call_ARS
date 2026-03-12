@@ -391,16 +391,23 @@ class VoiceManager private constructor(context: Context) {
 
         val threshold = if (model == ASR_FREE_MODEL) CONFIDENCE_FREE else CONFIDENCE_GRAMMAR
         if (hypo.confidence >= threshold) {
-            when {
-                model == ASR_FREE_MODEL -> {
-                    val text = hypo.text.replace("Hey Sam", "").trim()
-                    Log.d(TAG, "Free speech: '$text'")
-                    mainHandler.post { listener?.onSpeech(text) }
-                }
-                hypo.text.contains("Hey Sam") -> {
-                    val command = hypo.text.replace("Hey Sam", "").trim()
+            if (model == ASR_FREE_MODEL) {
+                // Free-speech model: strip wake word prefix and emit as speech
+                val text = hypo.text.replace("Hey Sam", "").trim()
+                Log.d(TAG, "Free speech: '$text'")
+                mainHandler.post { listener?.onSpeech(text) }
+            } else {
+                // Grammar model: dispatch ALL results as commands.
+                // Strip the wake-word prefix if present ("Hey Sam accept call" → "accept call").
+                // If the entire text IS the wake word, skip (empty command is meaningless).
+                val command = hypo.text.replace("Hey Sam", "").trim()
+                if (command.isNotEmpty()) {
                     Log.d(TAG, "Command: '$command'")
                     mainHandler.post { listener?.onCommand(command) }
+                } else {
+                    // Wake word only — switch to free model so user can speak freely
+                    Log.d(TAG, "Wake word detected, switching to free model")
+                    mainHandler.post { listener?.onStatusChanged("wake_word_detected") }
                 }
             }
         }

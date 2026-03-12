@@ -112,6 +112,29 @@ class _CallScreenState extends State<CallScreen> with VivokaRouteCommands {
                         : _timer(voip.connectedAt),
                   ),
                 ),
+                if (voip.connectionLostMessage != null)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      color: Colors.red.shade700.withValues(alpha: 0.92),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 16),
+                      child: SafeArea(
+                        bottom: false,
+                        child: Text(
+                          voip.connectionLostMessage!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 Positioned(
                   bottom: 8,
                   child: SizedBox(

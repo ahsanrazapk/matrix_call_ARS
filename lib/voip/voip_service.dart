@@ -53,6 +53,9 @@ class VoipService extends ChangeNotifier
   DateTime? _connectedAt;
   DateTime? get connectedAt => _connectedAt;
 
+  String? connectionLostMessage;
+  Timer? _connectionRecoveryTimer;
+
   bool _ringtonePlaying = false;
   bool _ringbackPlaying = false;
 
@@ -76,6 +79,8 @@ class VoipService extends ChangeNotifier
   }
 
   Future<void> stop() async {
+    _cancelConnectionRecoveryTimer();
+    connectionLostMessage = null;
     WidgetsBinding.instance.removeObserver(this);
 
     await stopRingtone();
@@ -276,6 +281,34 @@ class VoipService extends ChangeNotifier
     _connectedAt = null;
   }
 
+  void _startConnectionRecoveryTimer(String message, {required int timeoutSeconds}) {
+    if (_connectionRecoveryTimer != null) return;
+    connectionLostMessage = message;
+    notifyListeners();
+    _connectionRecoveryTimer = Timer(Duration(seconds: timeoutSeconds), () {
+      _onConnectionLost('Connection lost. The call has ended.');
+    });
+  }
+
+  void _cancelConnectionRecoveryTimer() {
+    _connectionRecoveryTimer?.cancel();
+    _connectionRecoveryTimer = null;
+  }
+
+  Future<void> _onConnectionLost(String message) async {
+    _cancelConnectionRecoveryTimer();
+    connectionLostMessage = message;
+    notifyListeners();
+    await Future.delayed(const Duration(seconds: 2));
+    final s = _active;
+    if (s == null) return;
+    try {
+      await s.hangup(reason: CallErrorCode.userHangup);
+    } catch (_) {
+      await clearActive();
+    }
+  }
+
   @override
   MediaDevices get mediaDevices => _CustomMediaDevices();
 
@@ -294,24 +327,44 @@ class VoipService extends ChangeNotifier
     } catch (_) {}
 
     pc.onIceConnectionState = (state) {
-      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
-        _markConnectedIfNeeded(_active);
-        _tuneVideoSenders(pc);
-      }
-      if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
-          state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
-        debugPrint('[VoIP] ICE state: ${state.name} — attempting recovery');
+      debugPrint('[VoIP] ICE state: ${state.name}');
+      switch (state) {
+        case RTCIceConnectionState.RTCIceConnectionStateConnected:
+        case RTCIceConnectionState.RTCIceConnectionStateCompleted:
+          _markConnectedIfNeeded(_active);
+          _tuneVideoSenders(pc);
+          _cancelConnectionRecoveryTimer();
+          connectionLostMessage = null;
+          notifyListeners();
+        case RTCIceConnectionState.RTCIceConnectionStateDisconnected:
+          _startConnectionRecoveryTimer(
+            'Connection unstable — attempting to reconnect…',
+            timeoutSeconds: 10,
+          );
+        case RTCIceConnectionState.RTCIceConnectionStateFailed:
+          _onConnectionLost('Connection lost. The call has ended.');
+        default:
+          break;
       }
     };
 
     pc.onConnectionState = (state) {
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-        _tuneVideoSenders(pc);
-      }
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-          state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-        debugPrint('[VoIP] Peer connection: ${state.name}');
+      debugPrint('[VoIP] Peer connection: ${state.name}');
+      switch (state) {
+        case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+          _tuneVideoSenders(pc);
+          _cancelConnectionRecoveryTimer();
+          connectionLostMessage = null;
+          notifyListeners();
+        case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+          _startConnectionRecoveryTimer(
+            'Connection unstable — attempting to reconnect…',
+            timeoutSeconds: 10,
+          );
+        case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+          _onConnectionLost('Connection failed. The call has ended.');
+        default:
+          break;
       }
     };
 
@@ -579,6 +632,8 @@ class VoipService extends ChangeNotifier
   }
 
   Future<void> clearActive() async {
+    _cancelConnectionRecoveryTimer();
+    connectionLostMessage = null;
     await stopRingtone();
     await stopRingback();
     await _clearPerCallSubs();
